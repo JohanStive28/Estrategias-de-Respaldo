@@ -84,7 +84,7 @@ class MainWindow(QMainWindow):
 
                 # Columna de Backup (CheckBox)
                 backup_checkbox = QCheckBox()
-                backup_checkbox.setChecked(False)  # Establecer el estado inicial del CheckBox en False
+                backup_checkbox.setChecked(estatus == 1)  # Establecer el estado inicial del CheckBox en función del estado
                 self.table_widget.setCellWidget(i, 3, backup_checkbox)
 
         except sqlite3.Error as e:
