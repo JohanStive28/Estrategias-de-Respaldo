@@ -52,6 +52,9 @@ class MainWindow(QMainWindow):
         # Variable de control para el hilo
         self.stop_thread = False
 
+        # Configuración para la redirección de print a archivo de log
+        self.log_file = open("application.log", "w")
+
         self.load_data()
 
     def load_data(self):
@@ -88,21 +91,20 @@ class MainWindow(QMainWindow):
                 self.table_widget.setCellWidget(i, 3, backup_checkbox)
 
         except sqlite3.Error as e:
-            self.show_message("Error", f"Error al cargar datos: {e}")
+            self.log_error(f"Error al cargar datos: {e}")
 
     def update_status(self, state, name):
         status = 1 if state == Qt.CheckState.Checked else 0
         try:
-            print(f"Nombre de la estrategia: '{name}'")  # Mensaje de depuración
-            print(f"Estado a actualizar: {status}")  # Mensaje de depuración
+            self.log_debug(f"Nombre de la estrategia: '{name}'")
+            self.log_debug(f"Estado a actualizar: {status}")
             query = "UPDATE estrategias SET estatus = ? WHERE nombre_estrategia = ?"
-            print(f"Ejecutando consulta: {query}")  # Mensaje de depuración
+            self.log_debug(f"Ejecutando consulta: {query}")
             self.cursor.execute(query, (status, name))
             self.conn.commit()
-            print("Estado actualizado correctamente.")  # Mensaje de depuración
+            self.log_debug("Estado actualizado correctamente.")
         except sqlite3.Error as e:
-            self.show_message("Error", f"Error al actualizar estado: {e}")
-            print(f"Error al actualizar estado: {e}")  # Mensaje de depuración
+            self.log_error(f"Error al actualizar estado: {e}")
 
     def adjust_column_widths(self):
         # Obtener el ancho total disponible
@@ -156,6 +158,7 @@ class MainWindow(QMainWindow):
                 # Leer salida línea por línea
                 for line in iter(process.stdout.readline, ''):
                     self.signals.update_message.emit(line.strip())
+                    self.log_debug(line.strip())
 
                 # Esperar a que el proceso termine
                 process.stdout.close()
@@ -165,12 +168,14 @@ class MainWindow(QMainWindow):
                 stderr = process.stderr.read()
                 if stderr:
                     self.signals.update_message.emit(f"Error al ejecutar: {stderr.strip()}")
+                    self.log_error(stderr.strip())
 
                 # Comprobar si se debe detener el hilo
                 if self.stop_thread:
                     break
         except Exception as e:
             self.signals.update_message.emit(f"Error al ejecutar estrategias: {e}")
+            self.log_error(f"Error al ejecutar estrategias: {e}")
 
     def update_procedure_text(self, message):
         self.procedure_text.append(message)
@@ -184,6 +189,11 @@ class MainWindow(QMainWindow):
         # Cerrar la conexión a la base de datos
         if hasattr(self, 'conn'):
             self.conn.close()
+        
+        # Cerrar el archivo de log
+        if hasattr(self, 'log_file'):
+            self.log_file.close()
+        
         super().closeEvent(event)
 
     def show_message(self, title, message):
@@ -191,6 +201,14 @@ class MainWindow(QMainWindow):
         msg_box.setWindowTitle(title)
         msg_box.setText(message)
         msg_box.exec()
+    
+    def log_debug(self, message):
+        self.log_file.write(f"DEBUG: {message}\n")
+        self.log_file.flush()
+
+    def log_error(self, message):
+        self.log_file.write(f"ERROR: {message}\n")
+        self.log_file.flush()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
