@@ -1,9 +1,14 @@
 import sys
 import sqlite3
 import subprocess
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QPushButton, QCheckBox, QMessageBox, QTextEdit
-from PyQt6.QtCore import Qt
+import threading
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QVBoxLayout, 
+                             QWidget, QPushButton, QCheckBox, QMessageBox, QTextEdit)
+from PyQt6.QtCore import Qt, pyqtSignal, QObject
 from PyQt6.QtGui import QIcon
+
+class WorkerSignals(QObject):
+    update_message = pyqtSignal(str)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -36,35 +41,68 @@ class MainWindow(QMainWindow):
         self.run_button.clicked.connect(self.run_strategies)
         self.layout.addWidget(self.run_button)
 
+        # Conectar a la base de datos
+        self.conn = sqlite3.connect('Iv3.db')
+        self.cursor = self.conn.cursor()
+
+        # Configurar las señales del trabajador
+        self.signals = WorkerSignals()
+        self.signals.update_message.connect(self.update_procedure_text)
+
+        # Variable de control para el hilo
+        self.stop_thread = False
+
         self.load_data()
 
     def load_data(self):
         try:
-            # Conectar a la base de datos
-            conn = sqlite3.connect('Iv3.db')
-            cursor = conn.cursor()
-
             # Obtener datos
-            cursor.execute("SELECT nombre_estrategia, ruta_estrategia, estatus FROM estrategias")
-            rows = cursor.fetchall()
+            self.cursor.execute("SELECT nombre_estrategia, ruta_estrategia, estatus FROM estrategias")
+            rows = self.cursor.fetchall()
 
             # Configurar la tabla
             self.table_widget.setRowCount(len(rows))
-            self.table_widget.setColumnCount(3)
-            self.table_widget.setHorizontalHeaderLabels(["Nombre Estrategia", "Ruta Estrategia", "Estatus"])
+            self.table_widget.setColumnCount(4)
+            self.table_widget.setHorizontalHeaderLabels(["Nombre Estrategia", "Ruta Estrategia", "Estatus", "Backup"])
 
             for i, row in enumerate(rows):
-                for j, cell in enumerate(row):
-                    if j == 2:  # Columna de estatus
-                        checkbox = QCheckBox()
-                        checkbox.setChecked(bool(cell))
-                        self.table_widget.setCellWidget(i, j, checkbox)
-                    else:
-                        self.table_widget.setItem(i, j, QTableWidgetItem(str(cell)))
+                name = row[0]
+                path = row[1]
+                estatus = row[2]
 
-            conn.close()
+                # Columna de Nombre Estrategia
+                self.table_widget.setItem(i, 0, QTableWidgetItem(name))
+                # Columna de Ruta Estrategia
+                self.table_widget.setItem(i, 1, QTableWidgetItem(path))
+
+                # Columna de Estatus (CheckBox)
+                estatus_checkbox = QCheckBox()
+                estatus_checkbox.setChecked(estatus == 1)  # Establecer estado del CheckBox basado en el valor de estatus
+                # Conectar el estado del CheckBox al manejador
+                estatus_checkbox.stateChanged.connect(lambda state, name=name: self.update_status(state, name))
+                self.table_widget.setCellWidget(i, 2, estatus_checkbox)
+
+                # Columna de Backup (CheckBox)
+                backup_checkbox = QCheckBox()
+                backup_checkbox.setChecked(False)  # Establecer el estado inicial del CheckBox en False
+                self.table_widget.setCellWidget(i, 3, backup_checkbox)
+
         except sqlite3.Error as e:
             self.show_message("Error", f"Error al cargar datos: {e}")
+
+    def update_status(self, state, name):
+        status = 1 if state == Qt.CheckState.Checked else 0
+        try:
+            print(f"Nombre de la estrategia: '{name}'")  # Mensaje de depuración
+            print(f"Estado a actualizar: {status}")  # Mensaje de depuración
+            query = "UPDATE estrategias SET estatus = ? WHERE nombre_estrategia = ?"
+            print(f"Ejecutando consulta: {query}")  # Mensaje de depuración
+            self.cursor.execute(query, (status, name))
+            self.conn.commit()
+            print("Estado actualizado correctamente.")  # Mensaje de depuración
+        except sqlite3.Error as e:
+            self.show_message("Error", f"Error al actualizar estado: {e}")
+            print(f"Error al actualizar estado: {e}")  # Mensaje de depuración
 
     def adjust_column_widths(self):
         # Obtener el ancho total disponible
@@ -89,31 +127,64 @@ class MainWindow(QMainWindow):
         self.adjust_column_widths()
 
     def run_strategies(self):
+        # Obtener las filas de la tabla
+        self.strategies = []
+        for row_index in range(self.table_widget.rowCount()):
+            backup_checkbox = self.table_widget.cellWidget(row_index, 3)
+            if isinstance(backup_checkbox, QCheckBox) and backup_checkbox.isChecked():
+                name = self.table_widget.item(row_index, 0).text()
+                path = self.table_widget.item(row_index, 1).text()
+                self.strategies.append((name, path))
+
+        # Variable de control para detener el hilo
+        self.stop_thread = False
+
+        # Crear y empezar el hilo para realizar el backup y mostrar el progreso en tiempo real
+        self.thread = threading.Thread(target=self.execute_strategies)
+        self.thread.start()
+
+    def execute_strategies(self):
         try:
-            # Conectar a la base de datos
-            conn = sqlite3.connect('Iv3.db')
-            cursor = conn.cursor()
+            for name, path in self.strategies:
+                if self.stop_thread:
+                    break
 
-            # Obtener las filas de la tabla
-            rows = []
-            for row_index in range(self.table_widget.rowCount()):
-                checkbox = self.table_widget.cellWidget(row_index, 2)
-                if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
-                    name = self.table_widget.item(row_index, 0).text()
-                    path = self.table_widget.item(row_index, 1).text()
-                    rows.append((name, path))
+                self.signals.update_message.emit(f"Ejecutando estrategia: {name}")
 
-            # Ejecutar estrategias seleccionadas
-            for name, path in rows:
-                self.procedure_text.append(f"Ejecutando estrategia: {name}")
-                result = subprocess.run([path], shell=True, capture_output=True, text=True)
-                self.procedure_text.append(result.stdout)
-                if result.stderr:
-                    self.procedure_text.append(f"Error al ejecutar: {result.stderr}")
+                process = subprocess.Popen([path], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                
+                # Leer salida línea por línea
+                for line in iter(process.stdout.readline, ''):
+                    self.signals.update_message.emit(line.strip())
 
-            conn.close()
-        except sqlite3.Error as e:
-            self.show_message("Error", f"Error al ejecutar estrategias: {e}")
+                # Esperar a que el proceso termine
+                process.stdout.close()
+                process.wait()
+
+                # Leer errores, si los hay
+                stderr = process.stderr.read()
+                if stderr:
+                    self.signals.update_message.emit(f"Error al ejecutar: {stderr.strip()}")
+
+                # Comprobar si se debe detener el hilo
+                if self.stop_thread:
+                    break
+        except Exception as e:
+            self.signals.update_message.emit(f"Error al ejecutar estrategias: {e}")
+
+    def update_procedure_text(self, message):
+        self.procedure_text.append(message)
+
+    def closeEvent(self, event):
+        # Detener el hilo si está en ejecución
+        self.stop_thread = True
+        if hasattr(self, 'thread') and self.thread.is_alive():
+            self.thread.join()
+        
+        # Cerrar la conexión a la base de datos
+        if hasattr(self, 'conn'):
+            self.conn.close()
+        super().closeEvent(event)
 
     def show_message(self, title, message):
         msg_box = QMessageBox()
