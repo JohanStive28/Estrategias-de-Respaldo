@@ -1,0 +1,7 @@
+RUN {
+    ALLOCATE CHANNEL c1 DEVICE TYPE DISK;
+    BACKUP INCREMENTAL LEVEL 0 DATABASE FORMAT 'C:\app\johan\product\21c\dbhomeXE\backups\incr0_%U.bkp';
+    SQL 'ALTER SYSTEM ARCHIVE LOG CURRENT';
+    BACKUP ARCHIVELOG ALL FORMAT 'C:\app\johan\product\21c\dbhomeXE\backups\arch_%U.bkp' DELETE INPUT;
+    RELEASE CHANNEL c1;
+}

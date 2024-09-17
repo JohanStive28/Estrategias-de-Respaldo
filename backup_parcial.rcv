@@ -1,3 +1,0 @@
-RUN {
-    BACKUP TABLESPACE users;
-}

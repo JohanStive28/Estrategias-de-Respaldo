@@ -1,0 +1,14 @@
+RUN {
+    ALLOCATE CHANNEL c1 DEVICE TYPE DISK;
+
+    # Backup incremental del tablespace USERS
+    BACKUP INCREMENTAL LEVEL 0 TABLESPACE users FORMAT 'C:\app\johan\product\21c\dbhomeXE\backups\incr0_%U.bkp';
+
+    # Asegúrate de archivar los logs actuales para completar el backup
+    SQL 'ALTER SYSTEM ARCHIVE LOG CURRENT';
+
+    # Backup de los archivelogs
+    BACKUP ARCHIVELOG ALL FORMAT 'C:\app\johan\product\21c\dbhomeXE\backups\arch_%U.bkp' DELETE INPUT;
+
+    RELEASE CHANNEL c1;
+}
