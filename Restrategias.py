@@ -48,7 +48,7 @@ class MainWindow(QMainWindow):
 
     def load_data(self):
         try:
-            self.cursor.execute("SELECT nombre_estrategia, ruta_estrategia, estatus FROM estrategias")
+            self.cursor.execute("SELECT nombre_estrategia, ruta_estrategia, estatus FROM estrategias WHERE estatus = 1")
             rows = self.cursor.fetchall()
 
             self.table_widget.setRowCount(len(rows))
