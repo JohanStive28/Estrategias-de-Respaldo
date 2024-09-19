@@ -78,8 +78,12 @@ class MainWindow(QMainWindow):
     def update_status(self, state, name):
         status = 1 if state == Qt.CheckState.Checked else 0
         try:
+            # Actualizar el estado en la base de datos
             self.cursor.execute("UPDATE estrategias SET estatus = ? WHERE nombre_estrategia = ?", (status, name))
             self.conn.commit()
+            
+            # Realizar un fetch para obtener solo las estrategias con estatus = 1
+            self.load_data()
         except sqlite3.Error as e:
             self.show_message("Error", f"Error al actualizar estado: {e}")
 
